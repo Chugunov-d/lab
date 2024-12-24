@@ -1,0 +1,98 @@
+version: '3.8'
+services:
+  traefik:
+    image: traefik:v2.10
+    command:
+      - --api.insecure=true
+      - --providers.docker
+      - --entrypoints.web.address=:80
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./traefik/traefik.yml:/traefik/traefik.yml
+      - ./traefik/dynamic.yml:/traefik/dynamic.yml
+    networks:
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.dashboard.loadbalancer.server.port=8080"
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "3000:3000"
+    networks:
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=PathPrefix(`/`)"
+      - "traefik.http.services.frontend.loadbalancer.server.port=3000"
+
+  auth-service:
+    build:
+      context: ./backend/auth-service
+    ports:
+      - "4001:4001"
+    networks:
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.auth.rule=PathPrefix(`/auth`)"
+      - "traefik.http.services.auth.loadbalancer.server.port=4001"
+  db:
+      image: postgres:17
+      environment:
+        POSTGRES_USER: db_user
+        POSTGRES_PASSWORD: db_password
+        POSTGRES_DB: auth
+      ports:
+        - "5432:5432"
+      networks:
+        - traefik
+
+  cities-service:
+    build:
+      context: ./backend/cities-service
+    environment:
+      - DB_USER=db_user
+      - DB_PASSWORD=db_password
+      - DB_NAME=auth
+      - DB_HOST=db
+      - DB_PORT=5432
+    ports:
+      - "4002:4002"
+    depends_on:
+      - db
+    networks:
+        - traefik
+
+  pgadmin:
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com  # Укажите логин для входа
+      PGADMIN_DEFAULT_PASSWORD: admin          # Укажите пароль для входа
+    ports:
+      - "5050:80"
+    networks:
+      - traefik
+    depends_on:
+      - db
+
+  weather-service:
+    build:
+      context: ./backend/weather-service
+    ports:
+      - "4000:4000"
+    networks:
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.weather.rule=PathPrefix(`/api`)"
+      - "traefik.http.services.weather.loadbalancer.server.port=4000"
+
+networks:
+  traefik:
+    driver: bridge  
